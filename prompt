@@ -1,0 +1,57 @@
+我们很容易训练一个神经网络完成手写数字识别任务，并且达到很高的准确率。不过这个分类模型有个缺点，不能有效的检测异常输入，比如说，我们输入一个字符A的图片，它依然会预测为0-9的某个类别，而且可能置信度很高，无法简单地通过置信度阈值来判断是否是异常输入。
+我觉得可以在模型中添加一个自动编码器检测是否是异常输入。下面是我的实验思路：
+1.我已经使用pytorch搭建一个网络手写数字识别模型，这个模型同时包含编码器层， 分类层，自动编码器的编码层和解码层。
+2.编码器层包含卷积和flatten，输出是一维feature；分类层是全连接层，输入 feature，输出是用于分类的logits; 
+自动编码器的编码层是全连接层，对feature降维，输入feature，输出是latent_z，自动编码器的解码器对输入升维恢复到feature大小，输入是latent_z， 输出是rec_feature。
+总的来说模型有三个输出feature， logits，rec_feature。 
+3.使用logits和labels计算分类损失；使用feature和rec_feature计算重构损失。
+我已经写好了模型代码，你需要继续完成下面的代码：
+4. 写出train.py, 完成数据集的加载，模型的训练，权重的保存
+5. 写出compute_class_reconstruction_errors.py 计算每个类别的重构误差，并将结果写入到reconstruction_errors.txt中。
+6. 写出test.py 加载模型，读取reconstruction_errors.txt, 通过判断测试样本的重构误差与训练时的重构误差的差别，来判断是否时异常输入。
+
+```
+class AutoEncoder(nn.Module):
+    def __init__(self, input_dim, latent_dim):
+        super(AutoEncoder, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, latent_dim)
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, input_dim)
+        )
+
+    def forward(self, x):
+        latent_z = self.encoder(x)
+        rec_feature = self.decoder(latent_z)
+        return latent_z, rec_feature
+
+
+class DigitClassifier(nn.Module):
+    def __init__(self, input_dim, num_classes, latent_dim):
+        super(DigitClassifier, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten()
+        )
+        self.classifier = nn.Linear(input_dim, num_classes)
+        self.autoencoder = AutoEncoder(input_dim, latent_dim)
+
+    def forward(self, x):
+        encoded_feature = self.encoder(x)
+        logits = self.classifier(encoded_feature)
+        latent_z, rec_feature = self.autoencoder(encoded_feature)
+        return logits, encoded_feature, rec_feature
+
+def compute_loss(logits, labels, encoded_feature, rec_feature):
+    classification_loss = nn.CrossEntropyLoss()(logits, labels)
+    reconstruction_loss = nn.MSELoss()(encoded_feature, rec_feature)  # detach to avoid backpropagation through decoder
+    return classification_loss, reconstruction_loss
+
+model = DigitClassifier(input_dim=32*7*7, num_classes=10, latent_dim=128)
+```
